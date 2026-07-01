@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>本地快传 · Gitee 信令</title>
+    <style>
+        :root {
+            --bg: #f5f7fa;
+            --card: #fff;
+            --primary: #007aff;
+            --primary-light: #e8f0fe;
+            --text: #1d1d1f;
+            --text-secondary: #6e6e73;
+            --border: #e5e5ea;
+            --radius: 16px;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            background: var(--bg);
+            display: flex; align-items: center; justify-content: center;
+            min-height: 100vh; padding: 20px;
+        }
+        .container { width: 100%; max-width: 520px; display: flex; flex-direction: column; gap: 16px; }
+        .header { text-align: center; margin-bottom: 8px; }
+        .header .icon { font-size: 3rem; }
+        .header h1 { font-size: 1.8rem; font-weight: 700; color: var(--text); }
+        .header p { font-size: 0.9rem; color: var(--text-secondary); }
+        .card {
+            background: var(--card); border-radius: var(--radius); padding: 18px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.06); border: 1px solid var(--border);
+        }
+        .card-title { font-weight: 700; font-size: 0.95rem; margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: #bbb; }
+        .status-dot.connected { background: #34c759; }
+        .btn {
+            padding: 12px 18px; border: none; border-radius: 12px; font-weight: 600; font-size: 0.9rem;
+            cursor: pointer; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px;
+            background: var(--primary); color: #fff; white-space: nowrap;
+        }
+        .btn:hover { background: #005ecb; }
+        .btn:active { transform: scale(0.97); }
+        .btn-outline { background: #fff; color: var(--primary); border: 2px solid var(--primary); }
+        .btn-outline:hover { background: var(--primary-light); }
+        .btn-sm { padding: 8px 14px; font-size: 0.8rem; border-radius: 8px; }
+        .btn:disabled { opacity: 0.5; pointer-events: none; }
+        input, textarea {
+            width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 12px;
+            font-size: 0.85rem; background: #f9f9fb; color: var(--text); font-family: inherit;
+            resize: vertical; margin: 6px 0;
+        }
+        input:focus, textarea:focus {
+            outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(0,122,255,0.1);
+        }
+        .sdp-box {
+            font-family: 'SF Mono', monospace; font-size: 0.75rem; background: #f0f2f5;
+            border-radius: 8px; padding: 8px; max-height: 100px; overflow-y: auto; word-break: break-all;
+            margin: 8px 0;
+        }
+        .messages {
+            background: #f9f9fb; border-radius: 12px; padding: 12px; height: 200px; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .msg {
+            max-width: 80%; padding: 10px 14px; border-radius: 18px; font-size: 0.9rem;
+            word-break: break-word; animation: fadeIn 0.2s;
+        }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:translateY(0);} }
+        .msg-sent { align-self: flex-end; background: var(--primary); color: #fff; }
+        .msg-received { align-self: flex-start; background: #e9e9ef; color: var(--text); }
+        .msg-system { align-self: center; background: #fff3cd; color: #856404; font-size: 0.8rem; }
+        .drop-zone {
+            border: 2px dashed var(--border); border-radius: 12px; padding: 20px; text-align: center;
+            color: var(--text-secondary); margin: 8px 0;
+        }
+        .drop-zone.drag-over { background: var(--primary-light); border-color: var(--primary); }
+        .file-item { display: flex; align-items: center; gap: 8px; background: #e8f5e9; padding: 6px 12px; border-radius: 8px; margin: 4px 0; font-size: 0.85rem; }
+        .file-item button { background: #4caf50; color: #fff; border: none; border-radius: 6px; padding: 4px 12px; cursor: pointer; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div class="icon">🫧</div>
+        <h1>本地快传</h1>
+        <p>通过 Gitee 私库自动交换信令</p>
+    </div>
+
+    <!-- 连接卡片 -->
+    <div class="card">
+        <div class="card-title">
+            <span class="status-dot" id="statusDot"></span> 连接状态
+            <span id="statusText" style="font-weight:400;">未连接</span>
+        </div>
+
+        <div style="margin-bottom: 12px;">
+            <label style="font-weight:600; font-size:0.85rem;">📛 会话名称（双方保持一致）</label>
+            <input type="text" id="sessionName" value="test" placeholder="输入会话名，例如 mychat">
+            <p style="font-size:0.75rem; color:var(--text-secondary);">仓库文件名：<span id="fileNameDisplay">testrtc</span></p>
+        </div>
+
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px;">
+            <button class="btn" id="btnHost">📤 创建邀请</button>
+            <button class="btn btn-outline" id="btnJoin">📥 加入连接</button>
+        </div>
+
+        <div id="sdpPanel" style="display:none;">
+            <p style="font-weight:600; font-size:0.85rem;">📋 当前 SDP（调试用）</p>
+            <div class="sdp-box" id="sdpDisplay"></div>
+        </div>
+    </div>
+
+    <!-- 聊天和文件卡片 -->
+    <div class="card">
+        <div class="card-title">💬 聊天 & 文件传输</div>
+        <div class="messages" id="messageBox">
+            <div class="msg msg-system">👋 请输入会话名称，然后点击「创建邀请」或「加入连接」</div>
+        </div>
+        <div id="receiveProgress" style="display:none; margin:8px 0;">
+            <div style="display:flex; justify-content:space-between; font-size:0.8rem;">
+                <span id="receiveLabel">接收中...</span><span id="receivePercent">0%</span>
+            </div>
+            <div style="height:4px; background:#e0e0e0; border-radius:2px; overflow:hidden;">
+                <div id="receiveBar" style="height:100%; width:0%; background:var(--primary); transition:width 0.3s;"></div>
+            </div>
+        </div>
+        <div id="receivedFiles"></div>
+        <div class="drop-zone" id="dropZone">
+            <p>📁 拖拽文件到此处发送</p>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:8px; flex-wrap:wrap;">
+            <input type="text" id="sendInput" placeholder="输入消息..." style="flex:1;">
+            <button class="btn btn-sm" id="btnSend">发送</button>
+            <label class="btn btn-sm btn-outline" style="cursor:pointer;">
+                📎 选择文件
+                <input type="file" id="fileInput" style="display:none;">
+            </label>
+        </div>
+        <button class="btn btn-sm btn-outline" id="btnClear" style="margin-top:8px;">🗑️ 清空记录</button>
+    </div>
+</div>
+
+<script>
+(() => {
+    // ========== Gitee 配置（与您之前的扩展相同） ==========
+    const CFG = {
+        token: '6216c83cf9418b4c72cd429c7fbb1b8e',
+        owner: 'owtc',
+        repo: 'omii',
+        branch: 'master'
+    };
+
+    function apiUrl(path) {
+        return `https://gitee.com/api/v5/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(path)}`;
+    }
+
+    async function getRemoteSha(path) {
+        const url = `${apiUrl(path)}?access_token=${CFG.token}&ref=${CFG.branch}`;
+        try {
+            const r = await fetch(url);
+            if (r.ok) {
+                const data = await r.json();
+                return data.sha || null;
+            }
+        } catch (e) {}
+        return null;
+    }
+
+    async function giteeUpload(path, content, message) {
+        const base64 = btoa(unescape(encodeURIComponent(content)));
+        const sha = await getRemoteSha(path);
+        const body = {
+            access_token: CFG.token,
+            content: base64,
+            message,
+            branch: CFG.branch
+        };
+        if (sha) {
+            body.sha = sha;
+        }
+        const res = await fetch(apiUrl(path), {
+            method: sha ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.message || '上传失败');
+        }
+        return data;
+    }
+
+    async function giteeDownload(path) {
+        const url = `${apiUrl(path)}?access_token=${CFG.token}&ref=${CFG.branch}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            const d = await res.json();
+            throw new Error(d.message || '下载失败');
+        }
+        const data = await res.json();
+        const b64 = data.content.replace(/\s/g, '');
+        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+        return new TextDecoder().decode(bytes);
+    }
+
+    // ========== DOM 元素 ==========
+    const $ = id => document.getElementById(id);
+    const statusDot = $('statusDot');
+    const statusText = $('statusText');
+    const sessionNameInput = $('sessionName');
+    const fileNameDisplay = $('fileNameDisplay');
+    const btnHost = $('btnHost');
+    const btnJoin = $('btnJoin');
+    const sdpPanel = $('sdpPanel');
+    const sdpDisplay = $('sdpDisplay');
+    const messageBox = $('messageBox');
+    const sendInput = $('sendInput');
+    const btnSend = $('btnSend');
+    const fileInput = $('fileInput');
+    const dropZone = $('dropZone');
+    const btnClear = $('btnClear');
+    const receiveProgress = $('receiveProgress');
+    const receiveBar = $('receiveBar');
+    const receiveLabel = $('receiveLabel');
+    const receivePercent = $('receivePercent');
+    const receivedFiles = $('receivedFiles');
+
+    // 更新文件名显示
+    sessionNameInput.addEventListener('input', () => {
+        fileNameDisplay.textContent = (sessionNameInput.value || 'test') + 'rtc';
+    });
+
+    // ========== WebRTC 变量 ==========
+    let pc = null, chatChannel = null, fileChannel = null, isHost = false, connected = false;
+    const rtcConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    let messages = JSON.parse(localStorage.getItem('snap_msgs') || '[]');
+    let receivingFile = null, receivedFileList = [];
+    const CHUNK = 16 * 1024;
+
+    // ========== 消息处理 ==========
+    function saveMsgs() { localStorage.setItem('snap_msgs', JSON.stringify(messages)); }
+    function renderMsgs() {
+        messageBox.innerHTML = '';
+        if (messages.length === 0) {
+            messageBox.innerHTML = '<div class="msg msg-system">👋 请输入会话名称并开始连接</div>';
+            return;
+        }
+        messages.forEach(m => {
+            const d = document.createElement('div');
+            d.className = `msg msg-${m.type}`;
+            d.innerHTML = `${m.text}<div style="font-size:0.7rem; opacity:0.7; margin-top:2px;">${m.time}</div>`;
+            messageBox.appendChild(d);
+        });
+        messageBox.scrollTop = messageBox.scrollHeight;
+    }
+    function addMsg(type, text) {
+        const msg = { type, text, time: new Date().toLocaleTimeString('zh-CN', { hour12: false }) };
+        messages.push(msg);
+        saveMsgs();
+        const d = document.createElement('div');
+        d.className = `msg msg-${type}`;
+        d.innerHTML = `${text}<div style="font-size:0.7rem; opacity:0.7; margin-top:2px;">${msg.time}</div>`;
+        messageBox.appendChild(d);
+        messageBox.scrollTop = messageBox.scrollHeight;
+    }
+    renderMsgs();
+
+    function updateStatus(state) {
+        statusDot.className = 'status-dot';
+        if (state === 'connected') { statusDot.classList.add('connected'); statusText.textContent = '已连接'; connected = true; }
+        else if (state === 'connecting') { statusDot.classList.add('connecting'); statusText.textContent = '连接中...'; connected = false; }
+        else { statusDot.className = 'status-dot'; statusText.textContent = '未连接'; connected = false; }
+    }
+
+    function resetPC() {
+        if (pc) { pc.close(); pc = null; }
+        chatChannel = null; fileChannel = null; isHost = false; connected = false;
+        receivingFile = null;
+        updateStatus('disconnected');
+        sdpPanel.style.display = 'none';
+    }
+
+    function createPC() {
+        resetPC();
+        pc = new RTCPeerConnection(rtcConfig);
+        pc.onconnectionstatechange = () => {
+            const state = pc.connectionState;
+            if (state === 'connected') { updateStatus('connected'); addMsg('system', '✅ 连接已建立'); }
+            else if (state === 'disconnected' || state === 'failed') { updateStatus('disconnected'); addMsg('system', '⚠️ 连接断开'); }
+            else if (state === 'connecting') updateStatus('connecting');
+        };
+        pc.ondatachannel = e => {
+            if (e.channel.label === 'chat') { chatChannel = e.channel; setupChat(chatChannel); }
+            else if (e.channel.label === 'file') { fileChannel = e.channel; setupFile(fileChannel); }
+        };
+    }
+
+    function setupChat(ch) {
+        ch.onmessage = e => {
+            if (typeof e.data === 'string') {
+                try { const j = JSON.parse(e.data); if (j.type === 'file_meta') handleFileMeta(j); else addMsg('received', escapeHtml(e.data)); }
+                catch { addMsg('received', escapeHtml(e.data)); }
+            }
+        };
+    }
+    function setupFile(ch) {
+        ch.binaryType = 'arraybuffer';
+        ch.onmessage = e => {
+            if (typeof e.data === 'string') {
+                const j = JSON.parse(e.data);
+                if (j.type === 'file_meta') handleFileMeta(j);
+                else if (j.type === 'file_end') finishReceive();
+            } else if (e.data instanceof ArrayBuffer) handleFileChunk(e.data);
+        };
+    }
+
+    function handleFileMeta(meta) {
+        receivingFile = { name: meta.name, size: meta.size, chunks: [], received: 0 };
+        receiveProgress.style.display = 'block';
+        receiveBar.style.width = '0%'; receivePercent.textContent = '0%';
+        receiveLabel.textContent = `接收 ${meta.name} (${formatSize(meta.size)})`;
+        addMsg('system', `📥 接收文件: ${escapeHtml(meta.name)} (${formatSize(meta.size)})`);
+    }
+    function handleFileChunk(buf) {
+        if (!receivingFile) return;
+        receivingFile.chunks.push(buf);
+        receivingFile.received += buf.byteLength;
+        const pct = Math.min(100, Math.round((receivingFile.received / receivingFile.size) * 100));
+        receiveBar.style.width = pct + '%'; receivePercent.textContent = pct + '%';
+        if (receivingFile.received >= receivingFile.size) finishReceive();
+    }
+    function finishReceive() {
+        if (!receivingFile) return;
+        const rf = receivingFile;
+        const blob = new Blob(rf.chunks, { type: 'application/octet-stream' });
+        receivedFileList.push({ name: rf.name, size: rf.size, blob });
+        addMsg('system', `✅ 已收到 ${escapeHtml(rf.name)} (${formatSize(rf.size)})`);
+        receiveProgress.style.display = 'none';
+        renderReceived();
+        receivingFile = null;
+    }
+    function renderReceived() {
+        receivedFiles.innerHTML = '';
+        receivedFileList.forEach((f, i) => {
+            const div = document.createElement('div');
+            div.className = 'file-item';
+            div.innerHTML = `📄 ${escapeHtml(f.name)} (${formatSize(f.size)})`;
+            const btn = document.createElement('button');
+            btn.textContent = '下载';
+            btn.onclick = () => {
+                const url = URL.createObjectURL(f.blob);
+                const a = document.createElement('a'); a.href = url; a.download = f.name; a.click();
+                URL.revokeObjectURL(url);
+            };
+            div.appendChild(btn);
+            receivedFiles.appendChild(div);
+        });
+    }
+    function formatSize(b) {
+        if (b === 0) return '0 B';
+        const k = 1024, u = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(b) / Math.log(k));
+        return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + u[i];
+    }
+    const escapeHtml = str => { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; };
+
+    // ========== Gitee 信令逻辑 ==========
+    function getFileName() {
+        return (sessionNameInput.value || 'test') + 'rtc';
+    }
+
+    async function waitForIce() {
+        return new Promise(resolve => {
+            if (pc.iceGatheringState === 'complete') resolve();
+            else pc.onicegatheringstatechange = () => { if (pc.iceGatheringState === 'complete') resolve(); };
+            setTimeout(resolve, 5000);
+        });
+    }
+
+    // 发起方流程
+    btnHost.addEventListener('click', async () => {
+        createPC();
+        isHost = true;
+        updateStatus('connecting');
+        addMsg('system', '🔧 正在生成 Offer 并上传到 Gitee...');
+        try {
+            // 创建数据通道
+            chatChannel = pc.createDataChannel('chat', { ordered: true });
+            setupChat(chatChannel);
+            fileChannel = pc.createDataChannel('file', { ordered: true });
+            setupFile(fileChannel);
+
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            await waitForIce();
+
+            const sdp = pc.localDescription.sdp;
+            sdpDisplay.textContent = sdp;
+            sdpPanel.style.display = 'block';
+
+            const fileName = getFileName();
+            addMsg('system', `📤 上传 Offer 至 ${fileName}...`);
+            await giteeUpload(fileName, sdp, `Host offer for ${fileName}`);
+
+            addMsg('system', '⏳ 等待对方响应（每 2 秒检查一次）...');
+            // 轮询直到文件内容变化（不再是自己的 Offer）
+            const checkInterval = setInterval(async () => {
+                try {
+                    const content = await giteeDownload(fileName);
+                    if (content !== sdp) {
+                        clearInterval(checkInterval);
+                        addMsg('system', '📥 收到 Answer，正在完成连接...');
+                        try {
+                            await pc.setRemoteDescription({ type: 'answer', sdp: content });
+                            addMsg('system', '🔗 连接建立中...');
+                        } catch (e) {
+                            addMsg('system', `❌ 设置 Answer 失败: ${e.message}`);
+                        }
+                    }
+                } catch (e) {
+                    // 文件可能还不存在，忽略
+                }
+            }, 2000);
+
+        } catch (err) {
+            addMsg('system', `❌ 创建邀请失败: ${err.message}`);
+            updateStatus('disconnected');
+        }
+    });
+
+    // 接收方流程
+    btnJoin.addEventListener('click', async () => {
+        createPC();
+        isHost = false;
+        updateStatus('connecting');
+        const fileName = getFileName();
+        addMsg('system', `🔍 正在从 Gitee 读取 ${fileName} ...`);
+
+        try {
+            // 等待文件出现（轮询）
+            let offerSdp = null;
+            for (let i = 0; i < 30; i++) {
+                try {
+                    offerSdp = await giteeDownload(fileName);
+                    if (offerSdp) break;
+                } catch (e) {}
+                await new Promise(r => setTimeout(r, 2000));
+            }
+            if (!offerSdp) {
+                throw new Error('超时未收到 Offer，请确保发起方已创建邀请');
+            }
+
+            addMsg('system', '📥 收到 Offer，生成 Answer...');
+            await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            await waitForIce();
+
+            const answerSdp = pc.localDescription.sdp;
+            sdpDisplay.textContent = answerSdp;
+            sdpPanel.style.display = 'block';
+
+            addMsg('system', `📤 上传 Answer 至 ${fileName}...`);
+            await giteeUpload(fileName, answerSdp, `Guest answer for ${fileName}`);
+            addMsg('system', '✅ Answer 已发送，等待连接建立...');
+        } catch (err) {
+            addMsg('system', `❌ 加入失败: ${err.message}`);
+            updateStatus('disconnected');
+        }
+    });
+
+    // ========== 聊天 & 文件 ==========
+    btnSend.addEventListener('click', () => {
+        const text = sendInput.value.trim();
+        if (!text) return;
+        if (!chatChannel || chatChannel.readyState !== 'open') return alert('聊天通道未就绪');
+        chatChannel.send(text);
+        addMsg('sent', escapeHtml(text));
+        sendInput.value = '';
+    });
+    sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSend.click(); });
+
+    async function sendFile(file) {
+        if (!fileChannel || fileChannel.readyState !== 'open') return alert('文件通道未就绪');
+        const meta = JSON.stringify({ type: 'file_meta', name: file.name, size: file.size });
+        fileChannel.send(meta);
+        addMsg('sent', `📤 发送文件: ${escapeHtml(file.name)} (${formatSize(file.size)})`);
+        const reader = file.stream().getReader();
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            let offset = 0;
+            while (offset < value.buffer.byteLength) {
+                const chunk = value.buffer.slice(offset, offset + CHUNK);
+                offset += CHUNK;
+                await new Promise(r => {
+                    if (fileChannel.bufferedAmount < 256 * 1024) r();
+                    else { const i = setInterval(() => { if (fileChannel.bufferedAmount < 256 * 1024) { clearInterval(i); r(); } }, 50); }
+                });
+                fileChannel.send(chunk);
+            }
+        }
+        fileChannel.send(JSON.stringify({ type: 'file_end' }));
+        addMsg('system', `✅ 文件发送完成: ${escapeHtml(file.name)}`);
+    }
+    fileInput.addEventListener('change', () => {
+        const f = fileInput.files[0];
+        if (f) sendFile(f);
+    });
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+        e.preventDefault(); dropZone.classList.remove('drag-over');
+        if (e.dataTransfer.files.length > 0) sendFile(e.dataTransfer.files[0]);
+    });
+
+    btnClear.addEventListener('click', () => {
+        if (confirm('清空所有记录？')) {
+            messages = []; saveMsgs(); renderMsgs();
+            receivedFileList = []; receivedFiles.innerHTML = '';
+        }
+    });
+
+    updateStatus('disconnected');
+})();
+</script>
+</body>
+</html>
