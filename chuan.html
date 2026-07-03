@@ -250,9 +250,11 @@
         cleanupScanner();
 
         // 权限检测
+        let permissionGranted = false;
         try {
             const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             testStream.getTracks().forEach(track => track.stop());
+            permissionGranted = true;
         } catch (err) {
             cleanupScanner();
             if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
@@ -263,29 +265,47 @@
             return;
         }
 
-        qrScanner = new Html5Qrcode("qrReader");
-        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        if (!permissionGranted) return;
 
-        // 直接使用标准后置摄像头约束，避免变焦导致无法打开
-        qrScanner.start(
-            { facingMode: 'environment' },
-            config,
-            (decodedText) => {
-                sessionNameInput.value = decodedText;
-                localStorage.setItem('snap_session_name', decodedText);
-                generateQR(decodedText);
-                cleanupScanner();
-                addMsg('✅ 扫码成功，会话名称已更新');
-            },
-            () => {} // 忽略扫描过程中的错误
-        ).catch(err => {
+        // 获取设备列表并启动
+        try {
+            const devices = await Html5Qrcode.getCameras();
+            if (devices && devices.length) {
+                let cameraId = devices[0].id;
+                for (const device of devices) {
+                    const label = device.label.toLowerCase();
+                    if (label.includes('back') || label.includes('environment')) {
+                        cameraId = device.id;
+                        break;
+                    }
+                }
+                qrScanner = new Html5Qrcode("qrReader");
+                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                await qrScanner.start(
+                    cameraId,
+                    config,
+                    (decodedText) => {
+                        sessionNameInput.value = decodedText;
+                        localStorage.setItem('snap_session_name', decodedText);
+                        generateQR(decodedText);
+                        cleanupScanner();
+                        addMsg('✅ 扫码成功，会话名称已更新');
+                    },
+                    () => {}
+                );
+                console.log('扫描器启动成功');
+            } else {
+                addMsg('❌ 未找到可用摄像头');
+            }
+        } catch (err) {
             cleanupScanner();
             if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
                 addMsg('❌ 没有摄像头权限 或更换浏览器');
             } else {
                 addMsg('❌ 无法启动摄像头: ' + err.message);
             }
-        });
+            console.error('启动扫描失败:', err);
+        }
     });
 
     window.addEventListener('beforeunload', () => {
