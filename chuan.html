@@ -262,7 +262,7 @@
         btnCloseModal.addEventListener('click', () => { qrModal.style.display = 'none'; });
         qrModal.addEventListener('click', e => { if (e.target === qrModal) qrModal.style.display = 'none'; });
 
-        // 打赏图（使用本地 ./self.jpg）
+        // 打赏图（本地 self.jpg）
         const donateThumb = $('donateThumb'), donateImg = $('donateImg'), donateModal = $('donateModal'), btnCloseDonate = $('btnCloseDonate');
         const DONATE_URL = './self.jpg';
         donateThumb.addEventListener('click', () => { donateModal.style.display = 'flex'; });
@@ -427,7 +427,7 @@
             return filtered.join('\r\n');
         }
 
-        // DOM 元素
+        // DOM
         const statusDot = $('statusDot'), statusBadge = $('statusBadge'), networkBadge = $('networkBadge');
         const sessionNameInput = $('sessionName'), ipDisplay = $('ipDisplay'), ipv6SupportDisplay = $('ipv6SupportDisplay');
         const remoteIPDisplay = $('remoteIPDisplay'), connModeDisplay = $('connModeDisplay');
@@ -510,7 +510,7 @@
             else { statusBadge.classList.add('disconnected'); statusBadge.textContent = '未连接'; remoteIPDisplay.textContent = '等待连接...'; releaseWakeLock(); }
         }
 
-        // WebRTC 核心
+        // WebRTC
         let pc = null, chatChannel = null, fileChannel = null, connected = false;
         let receivingFile = null, receivedFileList = [], abortReceive = false;
         let wakeLock = null;
@@ -763,14 +763,14 @@
         });
         sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSend.click(); });
 
-        // 极致速度文件发送（4MB分片 + 8MB缓冲区）
+        // 文件传输：2MB 分片 + 4MB 缓冲区（高兼容性高速）
         async function sendFile(file) {
             if (!fileChannel || fileChannel.readyState !== 'open') { addMsg('⚠️ 文件通道未就绪'); return; }
             const meta = JSON.stringify({ type: 'file_meta', name: file.name, size: file.size });
             fileChannel.send(meta);
             addMsg(`📤 发送: ${file.name}`, 'sent');
-            const CHUNK_SIZE = 4 * 1024 * 1024;          // 4MB
-            const BUFFER_THRESHOLD = 8 * 1024 * 1024;    // 8MB
+            const CHUNK_SIZE = 2 * 1024 * 1024;          // 2MB
+            const BUFFER_THRESHOLD = 4 * 1024 * 1024;    // 4MB
             fileChannel.bufferedAmountLowThreshold = BUFFER_THRESHOLD;
             const reader = file.stream().getReader();
             let sent = 0, readDone = false;
