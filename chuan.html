@@ -231,7 +231,7 @@
                 qrScanner = new Html5Qrcode("qrReader");
                 await qrScanner.start(
                     cameraId,
-                    { fps: 25, qrbox: { width: 180, height: 180 }, aspectRatio: 1.0 },
+                    { fps: 35, qrbox: { width: 150, height: 150 }, aspectRatio: 1.0 },
                     (decodedText) => {
                         sessionNameInput.value = decodedText;
                         localStorage.setItem('snap_session_name', decodedText);
