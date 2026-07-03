@@ -39,13 +39,7 @@
         .radio-group { display: flex; gap: 16px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
         .radio-group label { display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; font-size: 0.85rem; }
         .donate-container { display: flex; flex-direction: column; align-items: center; margin-left: 20px; }
-        .donate-text {
-            font-size: 1rem;          /* 加大字号 */
-            font-weight: 700;         /* 加粗 */
-            color: #ff3b30;           /* 醒目的红色 */
-            margin-bottom: 4px;
-            text-shadow: 0 1px 2px rgba(255,59,48,0.2); /* 微弱阴影 */
-        }
+        .donate-text { font-size: 1rem; font-weight: 700; color: #ff3b30; margin-bottom: 4px; text-shadow: 0 1px 2px rgba(255,59,48,0.2); }
         .donate-img-thumb { width: 150px; height: 150px; border-radius: 4px; cursor: pointer; border: 1px solid #ddd; object-fit: cover; }
         .messages { background: #f9f9fb; border-radius: 12px; padding: 12px; height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
         .msg { padding: 10px 14px; border-radius: 18px; font-size: 0.9rem; position: relative; max-width: 80%; word-break: break-word; animation: fadeIn 0.2s ease-out; }
@@ -82,13 +76,9 @@
     </style>
 </head>
 <body>
-    <!-- ====== 隐藏广告位：上方5个 ====== -->
+    <!-- 隐藏广告位：上方5个 -->
     <div class="top-ads">
-        <div class="ad-slot">广告位1</div>
-        <div class="ad-slot">广告位2</div>
-        <div class="ad-slot">广告位3</div>
-        <div class="ad-slot">广告位4</div>
-        <div class="ad-slot">广告位5</div>
+        <div class="ad-slot">广告位1</div><div class="ad-slot">广告位2</div><div class="ad-slot">广告位3</div><div class="ad-slot">广告位4</div><div class="ad-slot">广告位5</div>
     </div>
 
     <div class="container">
@@ -148,10 +138,8 @@
         </div>
     </div>
 
-    <!-- ====== 隐藏统计广告位：底部 ====== -->
-    <div class="bottom-stats">
-        <div class="stats-slot">统计广告位</div>
-    </div>
+    <!-- 隐藏统计广告位 -->
+    <div class="bottom-stats"><div class="stats-slot">统计广告位</div></div>
 
     <div class="modal-overlay" id="qrModal">
         <div class="modal-content"><img id="qrLargeImage" src="" alt="放大二维码"><br><button class="modal-close" id="btnCloseModal">关闭</button></div>
@@ -208,50 +196,68 @@
         const btnScanQR = $('btnScanQR'), qrReader = $('qrReader');
         let qrScanner = null;
         function cleanupScanner() {
-            if (qrScanner) { qrScanner.stop().then(() => { qrScanner.clear(); qrReader.innerHTML = ''; qrScanner = null; }).catch(() => { qrReader.innerHTML = ''; qrScanner = null; }); }
-            else qrReader.innerHTML = '';
+            if (qrScanner) {
+                qrScanner.stop().then(() => { qrScanner.clear(); qrReader.innerHTML = ''; qrScanner = null; }).catch(() => { qrReader.innerHTML = ''; qrScanner = null; });
+            } else qrReader.innerHTML = '';
         }
+
         btnScanQR.addEventListener('click', async () => {
-            if (!scannerAvailable) { addMsg('❌ 扫描库未加载，请使用 HTTPS 或 localhost'); return; }
-            cleanupScanner();
-            try {
-                const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                testStream.getTracks().forEach(t => t.stop());
-            } catch (err) {
-                cleanupScanner();
-                if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
-                    addMsg('❌ 没有摄像头权限，请在浏览器设置中允许');
-                } else {
-                    addMsg('❌ 摄像头错误：' + (err.message || err.name));
-                }
+            if (!scannerAvailable) {
+                addMsg('❌ 扫描库未加载，请使用 HTTPS 或 localhost');
                 return;
             }
+
+            // 清理之前可能残留的扫描器
+            cleanupScanner();
+
+            // 直接尝试获取摄像头列表并启动，不再前置权限检测（html5-qrcode 内部会处理权限提示）
             try {
                 const devices = await Html5Qrcode.getCameras();
-                if (devices && devices.length) {
-                    let cameraId = devices[0].id;
-                    for (const d of devices) if (d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('environment')) { cameraId = d.id; break; }
-                    qrScanner = new Html5Qrcode("qrReader");
-                    await qrScanner.start(
-                        cameraId,
-                        { fps: 25, qrbox: { width: 180, height: 180 }, aspectRatio: 1.0 },
-                        (decodedText) => {
-                            sessionNameInput.value = decodedText;
-                            localStorage.setItem('snap_session_name', decodedText);
-                            generateQR(decodedText);
-                            cleanupScanner();
-                            addMsg('✅ 扫码成功');
-                        },
-                        () => {}
-                    );
-                } else {
-                    addMsg('❌ 未找到摄像头');
+                if (!devices || devices.length === 0) {
+                    addMsg('❌ 未找到可用摄像头');
+                    return;
                 }
+
+                // 优先后置摄像头
+                let cameraId = devices[0].id;
+                for (const device of devices) {
+                    const label = device.label.toLowerCase();
+                    if (label.includes('back') || label.includes('environment')) {
+                        cameraId = device.id;
+                        break;
+                    }
+                }
+
+                qrScanner = new Html5Qrcode("qrReader");
+                await qrScanner.start(
+                    cameraId,
+                    { fps: 25, qrbox: { width: 180, height: 180 }, aspectRatio: 1.0 },
+                    (decodedText) => {
+                        sessionNameInput.value = decodedText;
+                        localStorage.setItem('snap_session_name', decodedText);
+                        generateQR(decodedText);
+                        cleanupScanner();
+                        addMsg('✅ 扫码成功，会话名称已更新');
+                    },
+                    (errorMessage) => {
+                        // 扫描失败时忽略，但可记录日志
+                        console.warn('扫描错误:', errorMessage);
+                    }
+                );
             } catch (err) {
                 cleanupScanner();
-                addMsg('❌ 无法启动摄像头：' + (err.message || err));
+                // 常见错误处理
+                if (err.name === 'NotAllowedError' || (err.message && err.message.includes('Permission denied'))) {
+                    addMsg('❌ 摄像头权限被拒绝，请在浏览器设置中允许访问摄像头');
+                } else if (err.message && err.message.includes('NotFoundError')) {
+                    addMsg('❌ 未找到摄像头设备');
+                } else {
+                    addMsg('❌ 无法启动摄像头：' + (err.message || err));
+                }
+                console.error('启动扫描失败:', err);
             }
         });
+
         window.addEventListener('beforeunload', () => { if (qrScanner) qrScanner.stop().catch(()=>{}); });
 
         async function checkNetwork() {
