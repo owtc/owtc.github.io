@@ -15,7 +15,7 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
-            background: var(--bg); display: flex; align-items: center; justify-content: center;
+            background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center;
             min-height: 100vh; padding: 20px; position: relative;
         }
         .container { width: 100%; max-width: 560px; display: flex; flex-direction: column; gap: 14px; }
@@ -39,7 +39,13 @@
         .radio-group { display: flex; gap: 16px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
         .radio-group label { display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; font-size: 0.85rem; }
         .donate-container { display: flex; flex-direction: column; align-items: center; margin-left: 20px; }
-        .donate-text { font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 2px; }
+        .donate-text {
+            font-size: 1rem;          /* 加大字号 */
+            font-weight: 700;         /* 加粗 */
+            color: #ff3b30;           /* 醒目的红色 */
+            margin-bottom: 4px;
+            text-shadow: 0 1px 2px rgba(255,59,48,0.2); /* 微弱阴影 */
+        }
         .donate-img-thumb { width: 150px; height: 150px; border-radius: 4px; cursor: pointer; border: 1px solid #ddd; object-fit: cover; }
         .messages { background: #f9f9fb; border-radius: 12px; padding: 12px; height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
         .msg { padding: 10px 14px; border-radius: 18px; font-size: 0.9rem; position: relative; max-width: 80%; word-break: break-word; animation: fadeIn 0.2s ease-out; }
@@ -67,17 +73,23 @@
         .modal-content img { width: 256px; height: 256px; }
         .modal-close { margin-top: 16px; padding: 8px 20px; border: none; border-radius: 8px; background: var(--primary); color: #fff; font-weight: 600; cursor: pointer; }
         .donate-img { max-width: 80vw; max-height: 70vh; cursor: pointer; border-radius: 8px; }
-        .ad-placeholder { position: fixed; width: 120px; height: 120px; background: transparent; visibility: hidden; pointer-events: none; z-index: -1; }
-        .ad-left-top { top: 10px; left: 10px; } .ad-right-top { top: 10px; right: 10px; } .ad-left-bottom { bottom: 10px; left: 10px; } .ad-right-bottom { bottom: 10px; right: 10px; }
-        .ad-bottom-center { bottom: 10px; left: 50%; transform: translateX(-50%); width: 320px; height: 60px; }
+
+        /* 广告位（隐藏） */
+        .top-ads { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
+        .ad-slot { display: none; width: 120px; height: 120px; background: #f0f0f0; border: 1px dashed #ccc; align-items: center; justify-content: center; color: #999; font-size: 0.7rem; }
+        .bottom-stats { width: 100%; max-width: 560px; margin-top: 10px; text-align: center; }
+        .stats-slot { display: none; width: 100%; height: 60px; background: #f0f0f0; border: 1px dashed #ccc; line-height: 60px; color: #999; font-size: 0.7rem; }
     </style>
 </head>
 <body>
-    <div class="ad-placeholder ad-left-top" id="adLeftTop"></div>
-    <div class="ad-placeholder ad-right-top" id="adRightTop"></div>
-    <div class="ad-placeholder ad-left-bottom" id="adLeftBottom"></div>
-    <div class="ad-placeholder ad-right-bottom" id="adRightBottom"></div>
-    <div class="ad-placeholder ad-bottom-center" id="adBottomCenter" title="IP 统计预留位"></div>
+    <!-- ====== 隐藏广告位：上方5个 ====== -->
+    <div class="top-ads">
+        <div class="ad-slot">广告位1</div>
+        <div class="ad-slot">广告位2</div>
+        <div class="ad-slot">广告位3</div>
+        <div class="ad-slot">广告位4</div>
+        <div class="ad-slot">广告位5</div>
+    </div>
 
     <div class="container">
         <div style="text-align:center;"><h1>🫧 本地快传</h1></div>
@@ -134,6 +146,11 @@
             </div>
             <button class="btn btn-sm btn-outline" id="btnClear">🗑️ 清空聊天</button>
         </div>
+    </div>
+
+    <!-- ====== 隐藏统计广告位：底部 ====== -->
+    <div class="bottom-stats">
+        <div class="stats-slot">统计广告位</div>
     </div>
 
     <div class="modal-overlay" id="qrModal">
@@ -195,22 +212,45 @@
             else qrReader.innerHTML = '';
         }
         btnScanQR.addEventListener('click', async () => {
-            if (!scannerAvailable) { addMsg('❌ 扫描库未加载'); return; }
+            if (!scannerAvailable) { addMsg('❌ 扫描库未加载，请使用 HTTPS 或 localhost'); return; }
             cleanupScanner();
-            try { const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); testStream.getTracks().forEach(t => t.stop()); }
-            catch (err) { cleanupScanner(); addMsg(err.name === 'NotAllowedError' ? '❌ 没有摄像头权限' : '❌ 摄像头错误'); return; }
+            try {
+                const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                testStream.getTracks().forEach(t => t.stop());
+            } catch (err) {
+                cleanupScanner();
+                if (err.name === 'NotAllowedError' || err.message?.includes('Permission denied')) {
+                    addMsg('❌ 没有摄像头权限，请在浏览器设置中允许');
+                } else {
+                    addMsg('❌ 摄像头错误：' + (err.message || err.name));
+                }
+                return;
+            }
             try {
                 const devices = await Html5Qrcode.getCameras();
                 if (devices && devices.length) {
                     let cameraId = devices[0].id;
                     for (const d of devices) if (d.label.toLowerCase().includes('back') || d.label.toLowerCase().includes('environment')) { cameraId = d.id; break; }
                     qrScanner = new Html5Qrcode("qrReader");
-                    await qrScanner.start(cameraId, { fps: 25, qrbox: { width: 180, height: 180 }, aspectRatio: 1.0 },
-                        (decodedText) => { sessionNameInput.value = decodedText; localStorage.setItem('snap_session_name', decodedText); generateQR(decodedText); cleanupScanner(); addMsg('✅ 扫码成功'); },
+                    await qrScanner.start(
+                        cameraId,
+                        { fps: 25, qrbox: { width: 180, height: 180 }, aspectRatio: 1.0 },
+                        (decodedText) => {
+                            sessionNameInput.value = decodedText;
+                            localStorage.setItem('snap_session_name', decodedText);
+                            generateQR(decodedText);
+                            cleanupScanner();
+                            addMsg('✅ 扫码成功');
+                        },
                         () => {}
                     );
-                } else addMsg('❌ 未找到摄像头');
-            } catch (err) { cleanupScanner(); addMsg('❌ 无法启动摄像头'); }
+                } else {
+                    addMsg('❌ 未找到摄像头');
+                }
+            } catch (err) {
+                cleanupScanner();
+                addMsg('❌ 无法启动摄像头：' + (err.message || err));
+            }
         });
         window.addEventListener('beforeunload', () => { if (qrScanner) qrScanner.stop().catch(()=>{}); });
 
@@ -405,7 +445,7 @@
         }
         function setupFile(ch) {
             ch.binaryType = 'arraybuffer';
-            ch.onopen = () => { /* 不提示，避免重复 */ };
+            ch.onopen = () => {};
             ch.onclose = () => { addMsg('⚠️ 文件通道已关闭'); };
             ch.onmessage = e => {
                 if (typeof e.data === 'string') { const j = JSON.parse(e.data); if (j.type === 'file_meta') handleFileMeta(j); else if (j.type === 'file_end') finishReceive(); }
@@ -503,13 +543,9 @@
         btnSend.addEventListener('click', () => { const text = sendInput.value.trim(); if (!text || !chatChannel || chatChannel.readyState !== 'open') return; chatChannel.send(text); addMsg(text, 'sent'); sendInput.value = ''; localStorage.removeItem('snap_draft_msg'); });
         sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSend.click(); });
 
-        // 智能文件通道保活：任何一端均可主动创建
         async function ensureFileChannel() {
             if (fileChannel && fileChannel.readyState === 'open') return true;
-            // 如果旧通道存在且未关闭，先关闭
-            if (fileChannel && fileChannel.readyState !== 'closed') {
-                try { fileChannel.close(); } catch(e) {}
-            }
+            if (fileChannel && fileChannel.readyState !== 'closed') { try { fileChannel.close(); } catch(e) {} }
             if (pc && pc.connectionState === 'connected') {
                 addMsg('🔄 正在创建文件通道...');
                 try {
@@ -521,16 +557,12 @@
                     });
                     addMsg('✅ 文件通道已就绪');
                     return true;
-                } catch (e) {
-                    addMsg('❌ 创建文件通道失败: ' + e.message);
-                    return false;
-                }
+                } catch (e) { addMsg('❌ 创建文件通道失败: ' + e.message); return false; }
             }
             addMsg('❌ 无法创建文件通道（未连接）');
             return false;
         }
 
-        // 发送文件（2MB/4MB）
         async function sendFile(file) {
             if (!await ensureFileChannel()) return;
 
@@ -538,8 +570,8 @@
             fileChannel.send(meta);
             addMsg(`📤 发送: ${file.name} (${formatSize(file.size)})`, 'sent');
 
-            const CHUNK_SIZE = 2*1024* 1024;          // 2MB
-            const BUFFER_THRESHOLD = 4 * 1024 * 1024;    // 4MB
+            const CHUNK_SIZE = 256 * 1024;          // 256KB
+            const BUFFER_THRESHOLD = 4 * 1024 * 1024; // 4MB
             fileChannel.bufferedAmountLowThreshold = BUFFER_THRESHOLD;
             const reader = file.stream().getReader();
             let sent = 0, readDone = false, startTime = Date.now();
