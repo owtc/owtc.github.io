@@ -265,9 +265,11 @@
 
         qrScanner = new Html5Qrcode("qrReader");
         const config = { fps: 10, qrbox: { width: 250, height: 250 } };
-        const constraintsWithZoom = { facingMode: 'environment', advanced: [{ zoom: 2.0 }] };
 
-        qrScanner.start(constraintsWithZoom, config, 
+        // 直接使用标准后置摄像头约束，避免变焦导致无法打开
+        qrScanner.start(
+            { facingMode: 'environment' },
+            config,
             (decodedText) => {
                 sessionNameInput.value = decodedText;
                 localStorage.setItem('snap_session_name', decodedText);
@@ -276,27 +278,12 @@
                 addMsg('✅ 扫码成功，会话名称已更新');
             },
             () => {} // 忽略扫描过程中的错误
-        ).catch(async (err) => {
-            console.warn('变焦扫描启动失败，尝试普通扫描', err);
-            // 回退到无变焦模式
-            try {
-                await qrScanner.start({ facingMode: 'environment' }, config,
-                    (decodedText) => {
-                        sessionNameInput.value = decodedText;
-                        localStorage.setItem('snap_session_name', decodedText);
-                        generateQR(decodedText);
-                        cleanupScanner();
-                        addMsg('✅ 扫码成功，会话名称已更新');
-                    },
-                    () => {}
-                );
-            } catch (err2) {
-                cleanupScanner();
-                if (err2.name === 'NotAllowedError' || err2.message.includes('Permission denied')) {
-                    addMsg('❌ 没有摄像头权限 或更换浏览器');
-                } else {
-                    addMsg('❌ 无法启动摄像头: ' + err2.message);
-                }
+        ).catch(err => {
+            cleanupScanner();
+            if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
+                addMsg('❌ 没有摄像头权限 或更换浏览器');
+            } else {
+                addMsg('❌ 无法启动摄像头: ' + err.message);
             }
         });
     });
