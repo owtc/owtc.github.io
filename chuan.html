@@ -152,7 +152,7 @@
                 <label><input type="radio" name="netType" value="wan"> 🌐 公网连接 (IPv6)</label>
                 <div class="donate-container">
                     <span class="donate-text">求打赏</span>
-                    <img class="donate-img-thumb" id="donateThumb" src="https://owtc.github.io/tupian/self.jpg" alt="打赏二维码" title="点击放大">
+                    <img class="donate-img-thumb" id="donateThumb" src="./self.jpg" alt="打赏二维码" title="点击放大">
                 </div>
             </div>
             <p class="info-row">当前连接方式：<span id="connModeDisplay">内网连接</span></p>
@@ -197,7 +197,7 @@
 
     <div class="modal-overlay" id="donateModal">
         <div class="modal-content">
-            <img id="donateImg" class="donate-img" src="https://owtc.github.io/tupian/self.jpg" alt="打赏二维码" title="点击放大">
+            <img id="donateImg" class="donate-img" src="./self.jpg" alt="打赏二维码" title="点击放大">
             <br>
             <button class="modal-close" id="btnCloseDonate">关闭</button>
         </div>
@@ -205,7 +205,6 @@
 
     <script>
     (() => {
-        // 工具函数
         const escapeHtml = str => { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; };
         const formatSize = b => {
             if (b === 0) return '0 B';
@@ -263,9 +262,9 @@
         btnCloseModal.addEventListener('click', () => { qrModal.style.display = 'none'; });
         qrModal.addEventListener('click', e => { if (e.target === qrModal) qrModal.style.display = 'none'; });
 
-        // 打赏图
+        // 打赏图（使用本地 ./self.jpg）
         const donateThumb = $('donateThumb'), donateImg = $('donateImg'), donateModal = $('donateModal'), btnCloseDonate = $('btnCloseDonate');
-        const DONATE_URL = 'https://owtc.github.io/tupian/self.jpg';
+        const DONATE_URL = './self.jpg';
         donateThumb.addEventListener('click', () => { donateModal.style.display = 'flex'; });
         btnCloseDonate.addEventListener('click', () => { donateModal.style.display = 'none'; });
         donateModal.addEventListener('click', e => { if (e.target === donateModal) donateModal.style.display = 'none'; });
