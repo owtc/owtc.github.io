@@ -4,6 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>本地快传 · Gitee 信令</title>
+    <!-- 二维码生成库 -->
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <!-- 二维码扫描库 -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
             --bg: #f5f7fa; --card: #fff; --primary: #007aff; --primary-light: #e8f0fe;
@@ -32,6 +36,7 @@
         }
         .btn:disabled { opacity: 0.5; pointer-events: none; }
         .btn-outline { background: #fff; color: var(--primary); border: 2px solid var(--primary); }
+        .btn-sm { padding: 8px 14px; font-size: 0.8rem; border-radius: 8px; }
         input, textarea { width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 12px; margin: 6px 0; }
         .radio-group { display: flex; gap: 16px; align-items: center; margin: 8px 0; }
         .radio-group label { display: flex; align-items: center; gap: 6px; white-space: nowrap; cursor: pointer; font-size: 0.85rem; }
@@ -64,6 +69,25 @@
         .file-item button { background: #4caf50; color: #fff; border: none; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
         .file-item .btn-delete { background: var(--danger); }
         .info-row { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; }
+
+        /* 横向排列：输入框 + 二维码 + 扫描按钮 */
+        .session-row {
+            display: flex; align-items: center; gap: 8px; margin: 8px 0;
+            flex-wrap: nowrap;
+        }
+        .session-row input {
+            flex: 1; min-width: 0; margin: 0;
+        }
+        #qrCanvas {
+            width: 36px; height: 36px; border: 1px solid #ddd; border-radius: 4px;
+            flex-shrink: 0; display: none;
+        }
+        #btnScanQR {
+            flex-shrink: 0; white-space: nowrap; margin: 0;
+        }
+        .qr-error-text {
+            font-size: 0.65rem; color: var(--danger); margin-left: 4px; flex-shrink: 0;
+        }
     </style>
 </head>
 <body>
@@ -76,14 +100,20 @@
             <span class="network-badge" id="networkBadge">检测网络...</span>
         </div>
         <label>📛 会话名称（双方保持一致）</label>
-        <input type="text" id="sessionName" placeholder="输入会话名">
+        <div class="session-row">
+            <input type="text" id="sessionName" placeholder="输入会话名">
+            <canvas id="qrCanvas" width="36" height="36"></canvas>
+            <button class="btn btn-sm btn-outline" id="btnScanQR">📷 扫描</button>
+            <span id="qrError" class="qr-error-text"></span>
+        </div>
+        <div id="qrReader" style="width:100%; margin-top:8px;"></div>
         <div class="radio-group">
             <label><input type="radio" name="netType" value="lan" checked> 🏠 局域网连接</label>
             <label><input type="radio" name="netType" value="wan"> 🌐 公网连接 (IPv6)</label>
         </div>
-        <p class="info-row">当前连接方式：<span id="connModeDisplay">内网直连 (保留私有IP和.local域名)</span></p>
+        <p class="info-row">当前连接方式：<span id="connModeDisplay">内网连接</span></p>
         <p class="info-row">🌐 您的公网IP：<span id="ipDisplay">获取中...</span></p>
-        <p class="info-row">🛰️ IPv6 公网支持：<span id="ipv6SupportDisplay" style="font-weight:600;">检测中...</span></p>
+        <p class="info-row">🛰️ IPv6 公网支持 (STUN/TURN 测试)：<span id="ipv6SupportDisplay" style="font-weight:600;">正在测试...</span></p>
         <p class="info-row">🔗 对方IP：<span id="remoteIPDisplay" style="font-weight:600;">等待连接...</span></p>
         <div style="display:flex; gap:8px; margin-top:12px;">
             <button class="btn" id="btnHost">📤 创建邀请</button>
@@ -110,7 +140,6 @@
 
 <script>
 (() => {
-    // ========== 工具函数 ==========
     const escapeHtml = str => { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; };
     const formatSize = b => {
         if (b === 0) return '0 B';
@@ -129,6 +158,94 @@
 
     let publicIP = null;
     const $ = id => document.getElementById(id);
+
+    // 检查库是否加载成功
+    const qrAvailable = typeof QRCode !== 'undefined' && QRCode.toCanvas;
+    const scannerAvailable = typeof Html5Qrcode !== 'undefined';
+
+    // 二维码生成
+    const qrCanvas = $('qrCanvas');
+    const qrError = $('qrError');
+
+    function generateQR(text) {
+        if (!qrAvailable) {
+            qrError.textContent = '库未加载';
+            qrCanvas.style.display = 'none';
+            return;
+        }
+        qrError.textContent = '';
+        if (!text) {
+            qrCanvas.style.display = 'none';
+            return;
+        }
+        QRCode.toCanvas(qrCanvas, text, { width: 36, margin: 0 }, (error) => {
+            if (error) {
+                console.warn('二维码生成失败', error);
+                qrCanvas.style.display = 'none';
+                qrError.textContent = '生成失败';
+            } else {
+                qrCanvas.style.display = 'block';
+            }
+        });
+    }
+
+    // 扫描二维码
+    const btnScanQR = $('btnScanQR');
+    const qrReader = $('qrReader');
+    let qrScanner = null;
+
+    btnScanQR.addEventListener('click', () => {
+        if (!scannerAvailable) {
+            addMsg('❌ 扫描库未加载，请检查网络或使用 HTTPS');
+            return;
+        }
+        if (qrScanner) {
+            qrScanner.stop().then(() => {
+                qrScanner.clear();
+                qrReader.innerHTML = '';
+                qrScanner = null;
+            }).catch(() => {});
+        }
+        qrScanner = new Html5Qrcode("qrReader");
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        Html5Qrcode.getCameras().then(devices => {
+            if (devices && devices.length) {
+                const cameraId = devices[0].id;
+                qrScanner.start(
+                    cameraId,
+                    config,
+                    (decodedText) => {
+                        sessionNameInput.value = decodedText;
+                        localStorage.setItem('snap_session_name', decodedText);
+                        generateQR(decodedText);
+                        qrScanner.stop().then(() => {
+                            qrScanner.clear();
+                            qrReader.innerHTML = '';
+                            qrScanner = null;
+                            addMsg('✅ 扫码成功，会话名称已更新');
+                        });
+                    },
+                    () => {}
+                ).catch(err => {
+                    addMsg('❌ 无法启动摄像头: ' + err.message);
+                    qrScanner = null;
+                });
+            } else {
+                addMsg('❌ 未找到摄像头');
+                qrScanner = null;
+            }
+        }).catch(err => {
+            addMsg('❌ 获取摄像头失败: ' + err.message);
+            qrScanner = null;
+        });
+    });
+
+    window.addEventListener('beforeunload', () => {
+        if (qrScanner) {
+            qrScanner.stop().catch(() => {});
+        }
+    });
 
     async function checkNetwork() {
         try {
@@ -163,19 +280,15 @@
         });
     }
 
-    // 检测是否支持全局 IPv6（srflx 类型且非私有/链路本地）
-    async function checkIPv6Support() {
+    async function checkIPv6SupportViaSTUN() {
         if (!window.RTCPeerConnection) return false;
         return new Promise((resolve) => {
-            const pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun6.l.google.com:19302' }]
-            });
+            const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun6.l.google.com:19302' }] });
             let hasIPv6 = false;
-            const timeout = setTimeout(() => {
-                pc.close();
-                resolve(false);
-            }, 5000);
-            pc.createDataChannel('v6check');
+            let finished = false;
+            const finish = (result) => { if (!finished) { finished = true; pc.close(); resolve(result); } };
+            const timeout = setTimeout(() => finish(false), 5000);
+            pc.createDataChannel('v6stun');
             pc.createOffer().then(offer => pc.setLocalDescription(offer));
             pc.onicecandidate = (e) => {
                 if (e.candidate) {
@@ -188,31 +301,20 @@
                             const ip = parts[4];
                             if (ip.includes(':')) {
                                 const lower = ip.toLowerCase();
-                                // 排除链路本地和私有 ULA
                                 if (!lower.startsWith('fe80:') && !lower.startsWith('::1') && !lower.startsWith('fc') && !lower.startsWith('fd')) {
                                     hasIPv6 = true;
                                 }
                             }
                         }
                     }
-                } else {
-                    // ICE 收集完毕
-                    clearTimeout(timeout);
-                    pc.close();
-                    resolve(hasIPv6);
                 }
             };
             pc.onicegatheringstatechange = () => {
-                if (pc.iceGatheringState === 'complete') {
-                    clearTimeout(timeout);
-                    pc.close();
-                    resolve(hasIPv6);
-                }
+                if (pc.iceGatheringState === 'complete') { clearTimeout(timeout); finish(hasIPv6); }
             };
         });
     }
 
-    // 判断是否为有效的局域网候选地址
     function isLocalCandidate(addr) {
         if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(addr)) {
             const parts = addr.split('.').map(Number);
@@ -238,10 +340,7 @@
         const filtered = lines.filter(line => {
             if (line.startsWith('a=candidate:')) {
                 const parts = line.split(' ');
-                if (parts.length >= 5) {
-                    const addr = parts[4];
-                    return isLocalCandidate(addr);
-                }
+                if (parts.length >= 5) return isLocalCandidate(parts[4]);
             }
             return true;
         });
@@ -253,10 +352,7 @@
         const filtered = lines.filter(line => {
             if (line.startsWith('a=candidate:')) {
                 const parts = line.split(' ');
-                if (parts.length >= 5) {
-                    const ip = parts[4];
-                    return ip.includes(':');
-                }
+                if (parts.length >= 5) return parts[4].includes(':');
             }
             return true;
         });
@@ -290,14 +386,8 @@
     const radioLan = document.querySelector('input[value="lan"]');
     const radioWan = document.querySelector('input[value="wan"]');
     let networkMode = 'lan';
-    radioLan.addEventListener('change', () => {
-        networkMode = 'lan';
-        connModeDisplay.textContent = '内网直连 (保留私有IP和.local域名)';
-    });
-    radioWan.addEventListener('change', () => {
-        networkMode = 'wan';
-        connModeDisplay.textContent = 'IPv6公网连接';
-    });
+    radioLan.addEventListener('change', () => { networkMode = 'lan'; connModeDisplay.textContent = '内网连接'; });
+    radioWan.addEventListener('change', () => { networkMode = 'wan'; connModeDisplay.textContent = '公网连接'; });
 
     let storedSession = localStorage.getItem('snap_session_name');
     if (!storedSession) {
@@ -305,7 +395,11 @@
         localStorage.setItem('snap_session_name', storedSession);
     }
     sessionNameInput.value = storedSession;
-    sessionNameInput.addEventListener('input', () => localStorage.setItem('snap_session_name', sessionNameInput.value));
+    generateQR(storedSession);
+    sessionNameInput.addEventListener('input', () => {
+        localStorage.setItem('snap_session_name', sessionNameInput.value);
+        generateQR(sessionNameInput.value);
+    });
 
     const draft = localStorage.getItem('snap_draft_msg');
     if (draft) sendInput.value = draft;
@@ -378,11 +472,13 @@
         if (state === 'connected') {
             statusBadge.classList.add('connected'); statusBadge.textContent = '已连接';
             getRemoteIP();
+            requestWakeLock();
         } else if (state === 'connecting') {
             statusBadge.classList.add('connecting'); statusBadge.textContent = '连接中...';
         } else {
             statusBadge.classList.add('disconnected'); statusBadge.textContent = '未连接';
             remoteIPDisplay.textContent = '等待连接...';
+            releaseWakeLock();
         }
     }
 
@@ -393,17 +489,13 @@
             let remoteIP = null;
             stats.forEach(report => {
                 if (report.type === 'candidate-pair' && (report.state === 'succeeded' || report.nominated)) {
-                    if (report.remoteAddress && report.remoteAddress !== '0.0.0.0') {
-                        remoteIP = report.remoteAddress;
-                    }
+                    if (report.remoteAddress && report.remoteAddress !== '0.0.0.0') remoteIP = report.remoteAddress;
                 }
             });
             if (!remoteIP) {
                 stats.forEach(report => {
                     if (report.type === 'remote-candidate' && report.address && report.address !== '0.0.0.0') {
-                        if (!remoteIP || (!report.address.startsWith('192.168.') && !report.address.startsWith('10.') && !report.address.startsWith('172.'))) {
-                            remoteIP = report.address;
-                        }
+                        if (!remoteIP || (!report.address.startsWith('192.168.') && !report.address.startsWith('10.') && !report.address.startsWith('172.'))) remoteIP = report.address;
                     }
                 });
             }
@@ -414,30 +506,50 @@
             } else {
                 remoteIPDisplay.textContent = '无法获取';
             }
-        } catch (e) {
-            remoteIPDisplay.textContent = '获取失败';
+        } catch (e) { remoteIPDisplay.textContent = '获取失败'; }
+    }
+
+    let wakeLock = null;
+    async function requestWakeLock() {
+        if ('wakeLock' in navigator && navigator.wakeLock) {
+            try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
         }
+    }
+    async function releaseWakeLock() {
+        if (wakeLock) { try { await wakeLock.release(); } catch (e) {} wakeLock = null; }
     }
 
     function getRtcConfig() {
         if (networkMode === 'wan') {
-            return {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun6.l.google.com:19302' }
-                ]
-            };
+            return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun6.l.google.com:19302' }] };
         } else {
             return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
         }
     }
 
-    // WebRTC
     let pc = null, chatChannel = null, fileChannel = null, connected = false;
     let receivingFile = null, receivedFileList = [];
     const CHUNK = 256 * 1024;
+    let heartbeatTimer = null, lastPongTime = 0;
+
+    function startHeartbeat() {
+        stopHeartbeat();
+        lastPongTime = Date.now();
+        heartbeatTimer = setInterval(() => {
+            if (chatChannel && chatChannel.readyState === 'open') {
+                try { chatChannel.send(JSON.stringify({ t: 'p' })); } catch (e) {}
+            }
+            if (Date.now() - lastPongTime > 45000 && connected) {
+                addMsg('⚠️ 心跳超时，连接可能已断开');
+                updateStatus('disconnected');
+            }
+        }, 10000);
+    }
+    function stopHeartbeat() { if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; } }
 
     function resetPC() {
+        stopHeartbeat();
+        releaseWakeLock();
         if (pc) { pc.close(); pc = null; }
         chatChannel = null; fileChannel = null; connected = false;
         updateStatus('disconnected');
@@ -453,18 +565,19 @@
             else if (pc.connectionState === 'connecting') updateStatus('connecting');
         };
         pc.ondatachannel = e => {
-            console.log('[WebRTC] 收到数据通道:', e.channel.label);
             if (e.channel.label === 'chat') { chatChannel = e.channel; setupChat(chatChannel); }
             else if (e.channel.label === 'file') { fileChannel = e.channel; setupFile(fileChannel); }
         };
     }
 
     function setupChat(ch) {
-        ch.onopen = () => console.log('[Chat] 通道打开');
+        ch.onopen = () => startHeartbeat();
         ch.onmessage = e => {
             if (typeof e.data === 'string') {
                 try {
                     const j = JSON.parse(e.data);
+                    if (j.t === 'p') { try { ch.send(JSON.stringify({ t: 'o' })); } catch (ex) {} return; }
+                    if (j.t === 'o') { lastPongTime = Date.now(); return; }
                     if (j.type === 'file_meta') handleFileMeta(j);
                     else addMsg(e.data, 'received');
                 } catch { addMsg(e.data, 'received'); }
@@ -487,10 +600,7 @@
         if (!pc) return;
         if (pc.iceGatheringState === 'complete') return;
         return new Promise((resolve) => {
-            const check = () => {
-                if (pc.iceGatheringState === 'complete') resolve();
-                else setTimeout(check, 200);
-            };
+            const check = () => { if (pc.iceGatheringState === 'complete') resolve(); else setTimeout(check, 200); };
             setTimeout(() => resolve(), 8000);
             check();
         });
@@ -544,8 +654,7 @@
     async function getRemoteSha(path) {
         const url = `https://gitee.com/api/v5/repos/${CFG.owner}/${CFG.repo}/contents/${encodeURIComponent(path)}?access_token=${CFG.token}&ref=${CFG.branch}`;
         const r = await fetch(url);
-        if (r.ok) return (await r.json()).sha;
-        return null;
+        return r.ok ? (await r.json()).sha : null;
     }
     async function giteeUpload(path, content) {
         const base64 = btoa(unescape(encodeURIComponent(content)));
@@ -564,11 +673,8 @@
         const data = await res.json();
         return new TextDecoder().decode(Uint8Array.from(atob(data.content.replace(/\s/g, '')), c => c.charCodeAt(0)));
     }
-    function getFilePath() {
-        return BASE_PATH + (sessionNameInput.value || 'session') + '_rtc.txt';
-    }
+    function getFilePath() { return BASE_PATH + (sessionNameInput.value || 'session') + '_rtc.txt'; }
 
-    // 按钮事件
     btnHost.addEventListener('click', async () => {
         addMsg('⏳ 正在创建邀请...');
         btnHost.disabled = true; btnJoin.disabled = true;
@@ -582,24 +688,16 @@
             await waitForIceComplete();
             if (!pc.localDescription || !pc.localDescription.sdp) throw new Error('SDP 生成失败');
             let sdp = pc.localDescription.sdp;
-            if (networkMode === 'lan') {
-                sdp = filterLocalOnly(sdp);
-                addMsg('📌 已过滤公网候选，保留局域网地址（含 .local 域名）');
-            } else {
-                sdp = filterIPv6Only(sdp);
-                addMsg('📌 已过滤IPv4候选，仅保留IPv6');
-            }
+            if (networkMode === 'lan') sdp = filterLocalOnly(sdp);
+            else sdp = filterIPv6Only(sdp);
             sdpDisplay.textContent = sdp;
             await giteeUpload(getFilePath(), sdp);
             addMsg('📤 邀请创建成功，等待对方加入...');
             const check = setInterval(async () => {
                 try {
                     const answer = await giteeDownload(getFilePath());
-                    if (answer !== sdp) {
-                        clearInterval(check);
-                        await pc.setRemoteDescription({ type: 'answer', sdp: answer });
-                    }
-                } catch (e) { }
+                    if (answer !== sdp) { clearInterval(check); await pc.setRemoteDescription({ type: 'answer', sdp: answer }); }
+                } catch (e) {}
             }, 2000);
             setTimeout(() => { clearInterval(check); if (!connected) addMsg('⏰ 等待超时'); }, 120000);
         } catch (err) {
@@ -617,7 +715,7 @@
             createPC(); updateStatus('connecting');
             let offer = null;
             for (let i = 0; i < 30; i++) {
-                try { offer = await giteeDownload(getFilePath()); break; } catch (e) { }
+                try { offer = await giteeDownload(getFilePath()); break; } catch (e) {}
                 await new Promise(r => setTimeout(r, 2000));
             }
             if (!offer) throw new Error('超时未收到邀请');
@@ -628,13 +726,8 @@
             await waitForIceComplete();
             if (!pc.localDescription || !pc.localDescription.sdp) throw new Error('Answer SDP 生成失败');
             let answerSdp = pc.localDescription.sdp;
-            if (networkMode === 'lan') {
-                answerSdp = filterLocalOnly(answerSdp);
-                addMsg('📌 已过滤公网候选，保留局域网地址（含 .local 域名）');
-            } else {
-                answerSdp = filterIPv6Only(answerSdp);
-                addMsg('📌 已过滤IPv4候选，仅保留IPv6');
-            }
+            if (networkMode === 'lan') answerSdp = filterLocalOnly(answerSdp);
+            else answerSdp = filterIPv6Only(answerSdp);
             sdpDisplay.textContent = answerSdp;
             await giteeUpload(getFilePath(), answerSdp);
             addMsg('📤 应答已上传，等待连接...');
@@ -674,24 +767,51 @@
     dropZone.addEventListener('click', () => fileInput.click());
     btnClear.addEventListener('click', () => { if (confirm('清空聊天记录？')) { messages = []; saveMsgs(); renderMsgs(); } });
 
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            if (connected && pc && (pc.connectionState === 'connected' || pc.connectionState === 'connecting')) {
+                if (chatChannel && chatChannel.readyState === 'open') {
+                    lastPongTime = Date.now();
+                    try { chatChannel.send(JSON.stringify({ t: 'p' })); } catch (e) {}
+                }
+                requestWakeLock();
+            } else if (connected) {
+                addMsg('⚠️ 连接在后台断开');
+                updateStatus('disconnected');
+            }
+        }
+    });
+
+    window.addEventListener('pageshow', (event) => {
+        if (event.persisted && connected && pc) {
+            if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+                addMsg('⚠️ 页面恢复后连接已断开');
+                updateStatus('disconnected');
+            }
+        }
+    });
+
+    window.addEventListener('beforeunload', () => {
+        releaseWakeLock();
+        stopHeartbeat();
+        if (qrScanner) { qrScanner.stop().catch(() => {}); }
+    });
+
     // 初始化
     (async () => {
         const online = await checkNetwork();
         updateNetworkBadge(online);
         addMsg(online ? '✅ 网络准备成功' : '❌ 网络异常');
-        const [ip, ipv6Support] = await Promise.all([
-            getPublicIPFromWebRTC(),
-            checkIPv6Support()
-        ]);
+        const [ip, ipv6Support] = await Promise.all([getPublicIPFromWebRTC(), checkIPv6SupportViaSTUN()]);
         ipDisplay.textContent = ip || '获取失败';
         ipv6SupportDisplay.textContent = ipv6Support ? '✅ 支持' : '❌ 不支持';
         addMsg(`🌐 公网IP: ${ip}`);
-        addMsg(`🛰️ IPv6 公网支持: ${ipv6Support ? '是' : '否'}`);
+        addMsg(`🛰️ IPv6 公网支持 (STUN/TURN 测试): ${ipv6Support ? '是' : '否'}`);
     })();
 
     (async () => {
         try { await giteeDownload(BASE_PATH + '.gitkeep'); } catch (e) {
-            try { await giteeUpload(BASE_PATH + '.gitkeep', 'init'); } catch (e) { }
+            try { await giteeUpload(BASE_PATH + '.gitkeep', 'init'); } catch (e) {}
         }
     })();
 
