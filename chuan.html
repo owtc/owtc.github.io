@@ -280,7 +280,8 @@
                     }
                 }
                 qrScanner = new Html5Qrcode("qrReader");
-                const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+                // 优化识别速度：提高帧率 + 缩小检测框
+                const config = { fps: 20, qrbox: { width: 200, height: 200 } };
                 await qrScanner.start(
                     cameraId,
                     config,
@@ -293,7 +294,7 @@
                     },
                     () => {}
                 );
-                console.log('扫描器启动成功');
+                console.log('扫描器启动成功 (fps:20, qrbox:200x200)');
             } else {
                 addMsg('❌ 未找到可用摄像头');
             }
