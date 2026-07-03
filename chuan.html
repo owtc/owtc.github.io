@@ -110,7 +110,7 @@
             border-radius: 8px;
         }
 
-        /* 广告占位（隐藏） */
+        /* 广告占位 */
         .ad-placeholder {
             position: fixed; width: 120px; height: 120px;
             background: transparent; visibility: hidden; pointer-events: none; z-index: -1;
@@ -152,7 +152,7 @@
                 <label><input type="radio" name="netType" value="wan"> 🌐 公网连接 (IPv6)</label>
                 <div class="donate-container">
                     <span class="donate-text">求打赏</span>
-                    <img class="donate-img-thumb" id="donateThumb" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="打赏二维码" title="点击放大">
+                    <img class="donate-img-thumb" id="donateThumb" src="https://owtc.github.io/tupian/self.jpg" alt="打赏二维码" title="点击放大">
                 </div>
             </div>
             <p class="info-row">当前连接方式：<span id="connModeDisplay">内网连接</span></p>
@@ -197,7 +197,7 @@
 
     <div class="modal-overlay" id="donateModal">
         <div class="modal-content">
-            <img id="donateImg" class="donate-img" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="打赏二维码" title="点击放大">
+            <img id="donateImg" class="donate-img" src="https://owtc.github.io/tupian/self.jpg" alt="打赏二维码" title="点击放大">
             <br>
             <button class="modal-close" id="btnCloseDonate">关闭</button>
         </div>
@@ -265,15 +265,11 @@
 
         // 打赏图
         const donateThumb = $('donateThumb'), donateImg = $('donateImg'), donateModal = $('donateModal'), btnCloseDonate = $('btnCloseDonate');
-        const REAL_DONATE_URL = 'https://gitee.com/owtc/owtc/raw/master/tu/self.jpg';
-        const testImg = new Image();
-        testImg.onload = () => { donateThumb.src = REAL_DONATE_URL; donateImg.src = REAL_DONATE_URL; };
-        testImg.onerror = () => { donateThumb.title = '打赏图加载失败'; };
-        testImg.src = REAL_DONATE_URL;
+        const DONATE_URL = 'https://owtc.github.io/tupian/self.jpg';
         donateThumb.addEventListener('click', () => { donateModal.style.display = 'flex'; });
         btnCloseDonate.addEventListener('click', () => { donateModal.style.display = 'none'; });
         donateModal.addEventListener('click', e => { if (e.target === donateModal) donateModal.style.display = 'none'; });
-        donateImg.addEventListener('click', () => { window.open(REAL_DONATE_URL, '_blank'); });
+        donateImg.addEventListener('click', () => { window.open(DONATE_URL, '_blank'); });
 
         // 扫描
         const btnScanQR = $('btnScanQR'), qrReader = $('qrReader');
@@ -700,9 +696,8 @@
         }
         function getFilePath() { return BASE_PATH + (sessionNameInput.value || 'session') + '_rtc.txt'; }
 
-        // 按钮事件（关键修复：确保事件绑定成功）
+        // 按钮事件
         btnHost.addEventListener('click', async () => {
-            console.log('btnHost clicked');
             addMsg('⏳ 正在创建邀请...');
             btnHost.disabled = true; btnJoin.disabled = true;
             try {
@@ -733,7 +728,6 @@
         });
 
         btnJoin.addEventListener('click', async () => {
-            console.log('btnJoin clicked');
             addMsg('⏳ 正在加入连接...');
             btnHost.disabled = true; btnJoin.disabled = true;
             try {
@@ -770,14 +764,14 @@
         });
         sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSend.click(); });
 
-        // 高速文件发送函数
+        // 极致速度文件发送（4MB分片 + 8MB缓冲区）
         async function sendFile(file) {
             if (!fileChannel || fileChannel.readyState !== 'open') { addMsg('⚠️ 文件通道未就绪'); return; }
             const meta = JSON.stringify({ type: 'file_meta', name: file.name, size: file.size });
             fileChannel.send(meta);
             addMsg(`📤 发送: ${file.name}`, 'sent');
-            const CHUNK_SIZE = 2*1024*1024; // 2MB
-            const BUFFER_THRESHOLD = 4*1024*1024;
+            const CHUNK_SIZE = 4 * 1024 * 1024;          // 4MB
+            const BUFFER_THRESHOLD = 8 * 1024 * 1024;    // 8MB
             fileChannel.bufferedAmountLowThreshold = BUFFER_THRESHOLD;
             const reader = file.stream().getReader();
             let sent = 0, readDone = false;
