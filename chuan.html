@@ -4,9 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>本地快传 · Gitee 信令</title>
-    <!-- 二维码生成库 -->
     <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
-    <!-- 二维码扫描库 -->
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root {
@@ -70,7 +68,6 @@
         .file-item .btn-delete { background: var(--danger); }
         .info-row { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; }
 
-        /* 横向排列 */
         .session-row {
             display: flex; align-items: center; gap: 8px; margin: 8px 0;
             flex-wrap: nowrap;
@@ -87,7 +84,6 @@
             font-size: 0.65rem; color: var(--danger); margin-left: 4px; flex-shrink: 0;
         }
 
-        /* 二维码放大模态框 */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;
@@ -128,7 +124,7 @@
         </div>
         <p class="info-row">当前连接方式：<span id="connModeDisplay">内网连接</span></p>
         <p class="info-row">🌐 您的公网IP：<span id="ipDisplay">获取中...</span></p>
-        <p class="info-row">🛰️ IPv6 公网支持 (STUN/TURN 测试)：<span id="ipv6SupportDisplay" style="font-weight:600;">正在测试...</span></p>
+        <p class="info-row">🛰️ IPv6 公网支持：<span id="ipv6SupportDisplay" style="font-weight:600;">正在测试...</span></p>
         <p class="info-row">🔗 对方IP：<span id="remoteIPDisplay" style="font-weight:600;">等待连接...</span></p>
         <div style="display:flex; gap:8px; margin-top:12px;">
             <button class="btn" id="btnHost">📤 创建邀请</button>
@@ -153,7 +149,6 @@
     </div>
 </div>
 
-<!-- 二维码放大模态框 -->
 <div class="modal-overlay" id="qrModal">
     <div class="modal-content">
         <canvas id="qrLargeCanvas" width="256" height="256"></canvas>
@@ -208,7 +203,6 @@
         }
         QRCode.toCanvas(qrCanvas, text, { width: 36, margin: 0 }, (error) => {
             if (error) {
-                console.warn('二维码生成失败', error);
                 qrCanvas.style.display = 'none';
                 qrError.textContent = '生成失败';
             } else {
@@ -228,7 +222,6 @@
     btnCloseModal.addEventListener('click', () => { qrModal.style.display = 'none'; });
     qrModal.addEventListener('click', (e) => { if (e.target === qrModal) qrModal.style.display = 'none'; });
 
-    // 扫描二维码（优化错误处理）
     const btnScanQR = $('btnScanQR');
     const qrReader = $('qrReader');
     let qrScanner = null;
@@ -254,19 +247,17 @@
             return;
         }
 
-        // 清理之前可能残留的扫描器
         cleanupScanner();
 
-        // 检测摄像头权限
         try {
             const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             testStream.getTracks().forEach(track => track.stop());
         } catch (err) {
             cleanupScanner();
             if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-                addMsg('❌ 摄像头权限被拒绝，请在浏览器设置中允许访问摄像头');
+                addMsg('❌ 没有摄像头权限 或更换浏览器');
             } else {
-                addMsg('❌ 无法访问摄像头: ' + err.message);
+                addMsg('❌ 摄像头错误: ' + err.message);
             }
             return;
         }
@@ -294,11 +285,11 @@
                         cleanupScanner();
                         addMsg('✅ 扫码成功，会话名称已更新');
                     },
-                    () => {} // 忽略扫描过程中的错误
+                    () => {}
                 ).catch(err => {
                     cleanupScanner();
                     if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-                        addMsg('❌ 摄像头权限被拒绝，请在浏览器设置中允许访问摄像头');
+                        addMsg('❌ 没有摄像头权限 或更换浏览器');
                     } else {
                         addMsg('❌ 无法启动摄像头: ' + err.message);
                     }
@@ -310,7 +301,7 @@
         }).catch(err => {
             cleanupScanner();
             if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-                addMsg('❌ 摄像头权限被拒绝，请在浏览器设置中允许访问摄像头');
+                addMsg('❌ 没有摄像头权限 或更换浏览器');
             } else {
                 addMsg('❌ 获取摄像头列表失败: ' + err.message);
             }
@@ -318,9 +309,7 @@
     });
 
     window.addEventListener('beforeunload', () => {
-        if (qrScanner) {
-            qrScanner.stop().catch(() => {});
-        }
+        if (qrScanner) { qrScanner.stop().catch(() => {}); }
     });
 
     async function checkNetwork() {
@@ -356,37 +345,43 @@
         });
     }
 
-    async function checkIPv6SupportViaSTUN() {
+    // 从生成的 SDP 中检查是否有全局 IPv6 地址
+    async function checkIPv6SupportViaSDP() {
         if (!window.RTCPeerConnection) return false;
         return new Promise((resolve) => {
-            const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun6.l.google.com:19302' }] });
-            let hasIPv6 = false;
+            const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
             let finished = false;
             const finish = (result) => { if (!finished) { finished = true; pc.close(); resolve(result); } };
             const timeout = setTimeout(() => finish(false), 5000);
-            pc.createDataChannel('v6stun');
+
+            pc.createDataChannel('v6detect');
             pc.createOffer().then(offer => pc.setLocalDescription(offer));
-            pc.onicecandidate = (e) => {
-                if (e.candidate) {
-                    const candidate = e.candidate.candidate;
-                    const parts = candidate.split(' ');
-                    const typIndex = parts.indexOf('typ');
-                    if (typIndex !== -1) {
-                        const typ = parts[typIndex + 1];
-                        if (typ === 'srflx' || typ === 'host') {
-                            const ip = parts[4];
-                            if (ip.includes(':')) {
-                                const lower = ip.toLowerCase();
-                                if (!lower.startsWith('fe80:') && !lower.startsWith('::1') && !lower.startsWith('fc') && !lower.startsWith('fd')) {
-                                    hasIPv6 = true;
+            pc.onicegatheringstatechange = () => {
+                if (pc.iceGatheringState === 'complete') {
+                    clearTimeout(timeout);
+                    const sdp = pc.localDescription ? pc.localDescription.sdp : '';
+                    const candidates = sdp.split('\r\n').filter(line => line.startsWith('a=candidate:'));
+                    let hasIPv6 = false;
+                    for (const cand of candidates) {
+                        const parts = cand.split(' ');
+                        const typIndex = parts.indexOf('typ');
+                        if (typIndex !== -1) {
+                            const typ = parts[typIndex + 1];
+                            if (typ === 'host' || typ === 'srflx' || typ === 'prflx') {
+                                const ip = parts[4];
+                                if (ip && ip.includes(':')) {
+                                    const lower = ip.toLowerCase();
+                                    if (!lower.startsWith('fe80:') && !lower.startsWith('::1') &&
+                                        !lower.startsWith('fc') && !lower.startsWith('fd')) {
+                                        hasIPv6 = true;
+                                        break;
+                                    }
                                 }
                             }
                         }
                     }
+                    finish(hasIPv6);
                 }
-            };
-            pc.onicegatheringstatechange = () => {
-                if (pc.iceGatheringState === 'complete') { clearTimeout(timeout); finish(hasIPv6); }
             };
         });
     }
@@ -878,11 +873,14 @@
         const online = await checkNetwork();
         updateNetworkBadge(online);
         addMsg(online ? '✅ 网络准备成功' : '❌ 网络异常');
-        const [ip, ipv6Support] = await Promise.all([getPublicIPFromWebRTC(), checkIPv6SupportViaSTUN()]);
+        const [ip, ipv6Support] = await Promise.all([
+            getPublicIPFromWebRTC(),
+            checkIPv6SupportViaSDP()
+        ]);
         ipDisplay.textContent = ip || '获取失败';
         ipv6SupportDisplay.textContent = ipv6Support ? '✅ 支持' : '❌ 不支持';
         addMsg(`🌐 公网IP: ${ip}`);
-        addMsg(`🛰️ IPv6 公网支持 (STUN/TURN 测试): ${ipv6Support ? '是' : '否'}`);
+        addMsg(`🛰️ IPv6 公网支持: ${ipv6Support ? '是' : '否'}`);
     })();
 
     (async () => {
