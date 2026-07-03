@@ -249,6 +249,7 @@
 
         cleanupScanner();
 
+        // 权限检测
         try {
             const testStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
             testStream.getTracks().forEach(track => track.stop());
@@ -264,20 +265,22 @@
 
         qrScanner = new Html5Qrcode("qrReader");
         const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+        const constraintsWithZoom = { facingMode: 'environment', advanced: [{ zoom: 2.0 }] };
 
-        Html5Qrcode.getCameras().then(devices => {
-            if (devices && devices.length) {
-                let cameraId = devices[0].id;
-                for (const device of devices) {
-                    const label = device.label.toLowerCase();
-                    if (label.includes('back') || label.includes('environment')) {
-                        cameraId = device.id;
-                        break;
-                    }
-                }
-                qrScanner.start(
-                    cameraId,
-                    config,
+        qrScanner.start(constraintsWithZoom, config, 
+            (decodedText) => {
+                sessionNameInput.value = decodedText;
+                localStorage.setItem('snap_session_name', decodedText);
+                generateQR(decodedText);
+                cleanupScanner();
+                addMsg('✅ 扫码成功，会话名称已更新');
+            },
+            () => {} // 忽略扫描过程中的错误
+        ).catch(async (err) => {
+            console.warn('变焦扫描启动失败，尝试普通扫描', err);
+            // 回退到无变焦模式
+            try {
+                await qrScanner.start({ facingMode: 'environment' }, config,
                     (decodedText) => {
                         sessionNameInput.value = decodedText;
                         localStorage.setItem('snap_session_name', decodedText);
@@ -286,24 +289,14 @@
                         addMsg('✅ 扫码成功，会话名称已更新');
                     },
                     () => {}
-                ).catch(err => {
-                    cleanupScanner();
-                    if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-                        addMsg('❌ 没有摄像头权限 或更换浏览器');
-                    } else {
-                        addMsg('❌ 无法启动摄像头: ' + err.message);
-                    }
-                });
-            } else {
+                );
+            } catch (err2) {
                 cleanupScanner();
-                addMsg('❌ 未找到可用摄像头');
-            }
-        }).catch(err => {
-            cleanupScanner();
-            if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-                addMsg('❌ 没有摄像头权限 或更换浏览器');
-            } else {
-                addMsg('❌ 获取摄像头列表失败: ' + err.message);
+                if (err2.name === 'NotAllowedError' || err2.message.includes('Permission denied')) {
+                    addMsg('❌ 没有摄像头权限 或更换浏览器');
+                } else {
+                    addMsg('❌ 无法启动摄像头: ' + err2.message);
+                }
             }
         });
     });
@@ -345,7 +338,6 @@
         });
     }
 
-    // 从生成的 SDP 中检查是否有全局 IPv6 地址
     async function checkIPv6SupportViaSDP() {
         if (!window.RTCPeerConnection) return false;
         return new Promise((resolve) => {
@@ -353,7 +345,6 @@
             let finished = false;
             const finish = (result) => { if (!finished) { finished = true; pc.close(); resolve(result); } };
             const timeout = setTimeout(() => finish(false), 5000);
-
             pc.createDataChannel('v6detect');
             pc.createOffer().then(offer => pc.setLocalDescription(offer));
             pc.onicegatheringstatechange = () => {
