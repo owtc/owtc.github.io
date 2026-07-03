@@ -370,7 +370,7 @@
             else { statusBadge.classList.add('disconnected'); statusBadge.textContent = '未连接'; remoteIPDisplay.textContent = '等待连接...'; releaseWakeLock(); }
         }
 
-        let pc = null, chatChannel = null, fileChannel = null, connected = false;
+        let pc = null, chatChannel = null, fileChannel = null, connected = false, isHost = false;
         let receivingFile = null, receivedFileList = [], abortReceive = false;
         let wakeLock = null;
         async function requestWakeLock() { if ('wakeLock' in navigator && navigator.wakeLock) try { wakeLock = await navigator.wakeLock.request('screen'); } catch(e) {} }
@@ -405,6 +405,8 @@
         }
         function setupFile(ch) {
             ch.binaryType = 'arraybuffer';
+            ch.onopen = () => { /* 不提示，避免重复 */ };
+            ch.onclose = () => { addMsg('⚠️ 文件通道已关闭'); };
             ch.onmessage = e => {
                 if (typeof e.data === 'string') { const j = JSON.parse(e.data); if (j.type === 'file_meta') handleFileMeta(j); else if (j.type === 'file_end') finishReceive(); }
                 else if (e.data instanceof ArrayBuffer) handleFileChunk(e.data);
@@ -464,7 +466,7 @@
             addMsg('⏳ 正在创建邀请...'); btnHost.disabled = true; btnJoin.disabled = true;
             try {
                 if (!window.RTCPeerConnection) throw new Error('浏览器不支持WebRTC');
-                createPC(); updateStatus('connecting');
+                createPC(); isHost = true; updateStatus('connecting');
                 chatChannel = pc.createDataChannel('chat', { ordered: true }); setupChat(chatChannel);
                 fileChannel = pc.createDataChannel('file', { ordered: true }); setupFile(fileChannel);
                 const offer = await pc.createOffer(); await pc.setLocalDescription(offer); await waitForIceComplete();
@@ -483,7 +485,7 @@
             addMsg('⏳ 正在加入连接...'); btnHost.disabled = true; btnJoin.disabled = true;
             try {
                 if (!window.RTCPeerConnection) throw new Error('浏览器不支持WebRTC');
-                createPC(); updateStatus('connecting');
+                createPC(); isHost = false; updateStatus('connecting');
                 let offer = null;
                 for (let i = 0; i < 30; i++) { try { offer = await giteeDownload(getFilePath()); break; } catch (e) {} await new Promise(r => setTimeout(r, 2000)); }
                 if (!offer) throw new Error('超时未收到邀请');
@@ -501,46 +503,75 @@
         btnSend.addEventListener('click', () => { const text = sendInput.value.trim(); if (!text || !chatChannel || chatChannel.readyState !== 'open') return; chatChannel.send(text); addMsg(text, 'sent'); sendInput.value = ''; localStorage.removeItem('snap_draft_msg'); });
         sendInput.addEventListener('keydown', e => { if (e.key === 'Enter') btnSend.click(); });
 
-        // 文件发送：自动等待通道打开
-        async function sendFile(file) {
-            if (!fileChannel) {
-                let waited = 0;
-                while (!fileChannel && waited < 3000) { await new Promise(r => setTimeout(r, 100)); waited += 100; }
-                if (!fileChannel) { addMsg('⚠️ 文件通道未就绪'); return; }
+        // 智能文件通道保活：任何一端均可主动创建
+        async function ensureFileChannel() {
+            if (fileChannel && fileChannel.readyState === 'open') return true;
+            // 如果旧通道存在且未关闭，先关闭
+            if (fileChannel && fileChannel.readyState !== 'closed') {
+                try { fileChannel.close(); } catch(e) {}
             }
-            if (fileChannel.readyState !== 'open') {
-                addMsg('⏳ 文件通道正在准备，请稍候...');
+            if (pc && pc.connectionState === 'connected') {
+                addMsg('🔄 正在创建文件通道...');
                 try {
+                    fileChannel = pc.createDataChannel('file', { ordered: true });
+                    setupFile(fileChannel);
                     await new Promise((resolve, reject) => {
-                        const timeout = setTimeout(() => { reject(new Error('等待文件通道超时（5秒）')); }, 5000);
+                        const timeout = setTimeout(() => reject(new Error('创建通道超时')), 10000);
                         fileChannel.addEventListener('open', () => { clearTimeout(timeout); resolve(); }, { once: true });
-                        if (fileChannel.readyState === 'open') { clearTimeout(timeout); resolve(); }
                     });
-                } catch (err) { addMsg('❌ 文件通道未打开：' + err.message); return; }
+                    addMsg('✅ 文件通道已就绪');
+                    return true;
+                } catch (e) {
+                    addMsg('❌ 创建文件通道失败: ' + e.message);
+                    return false;
+                }
             }
+            addMsg('❌ 无法创建文件通道（未连接）');
+            return false;
+        }
+
+        // 发送文件（2MB/4MB）
+        async function sendFile(file) {
+            if (!await ensureFileChannel()) return;
+
             const meta = JSON.stringify({ type: 'file_meta', name: file.name, size: file.size });
             fileChannel.send(meta);
-            addMsg(`📤 发送: ${file.name}`, 'sent');
-            const CHUNK_SIZE = 1 * 1024 * 1024, BUFFER_THRESHOLD = 2 * 1024 * 1024;
+            addMsg(`📤 发送: ${file.name} (${formatSize(file.size)})`, 'sent');
+
+            const CHUNK_SIZE = 2*1024* 1024;          // 2MB
+            const BUFFER_THRESHOLD = 4 * 1024 * 1024;    // 4MB
             fileChannel.bufferedAmountLowThreshold = BUFFER_THRESHOLD;
             const reader = file.stream().getReader();
             let sent = 0, readDone = false, startTime = Date.now();
+
             const sendNextChunk = async () => {
                 try {
                     while (!readDone) {
                         if (fileChannel.readyState !== 'open') throw new Error('通道关闭');
-                        if (fileChannel.bufferedAmount > BUFFER_THRESHOLD) { await new Promise(resolve => { fileChannel.onbufferedamountlow = () => { fileChannel.onbufferedamountlow = null; resolve(); }; }); }
+                        if (fileChannel.bufferedAmount > BUFFER_THRESHOLD) {
+                            await new Promise(resolve => { fileChannel.onbufferedamountlow = () => { fileChannel.onbufferedamountlow = null; resolve(); }; });
+                        }
                         const { done, value } = await reader.read();
                         if (done) { readDone = true; break; }
-                        let offset = 0; const buf = value.buffer;
-                        while (offset < buf.byteLength) { const end = Math.min(offset + CHUNK_SIZE, buf.byteLength); const chunk = buf.slice(offset, end); offset = end; sent += chunk.byteLength; fileChannel.send(chunk); }
+                        let offset = 0;
+                        const buf = value.buffer;
+                        while (offset < buf.byteLength) {
+                            const end = Math.min(offset + CHUNK_SIZE, buf.byteLength);
+                            const chunk = buf.slice(offset, end);
+                            offset = end; sent += chunk.byteLength;
+                            fileChannel.send(chunk);
+                        }
                     }
                     if (readDone) {
                         fileChannel.send(JSON.stringify({ type: 'file_end' }));
-                        const elapsed = (Date.now()-startTime)/1000, speed = sent>0 ? formatSize(sent/elapsed)+'/s' : 'N/A';
+                        const elapsed = (Date.now()-startTime)/1000;
+                        const speed = sent > 0 ? formatSize(sent/elapsed)+'/s' : 'N/A';
                         addMsg(`✅ 发送完成 (${formatSize(sent)}, ${elapsed.toFixed(1)}s, ${speed})`);
                     }
-                } catch (err) { addMsg(`❌ 发送失败: ${err.message}`); try { fileChannel.send(JSON.stringify({type:'file_end'})); } catch(e){} }
+                } catch (err) {
+                    addMsg(`❌ 发送失败: ${err.message}`);
+                    try { fileChannel.send(JSON.stringify({type:'file_end'})); } catch(e) {}
+                }
             };
             sendNextChunk();
         }
