@@ -70,23 +70,38 @@
         .file-item .btn-delete { background: var(--danger); }
         .info-row { font-size: 0.8rem; color: var(--text-secondary); margin-top: 4px; }
 
-        /* 横向排列：输入框 + 二维码 + 扫描按钮 */
+        /* 横向排列 */
         .session-row {
             display: flex; align-items: center; gap: 8px; margin: 8px 0;
             flex-wrap: nowrap;
         }
-        .session-row input {
-            flex: 1; min-width: 0; margin: 0;
-        }
+        .session-row input { flex: 1; min-width: 0; margin: 0; }
         #qrCanvas {
             width: 36px; height: 36px; border: 1px solid #ddd; border-radius: 4px;
-            flex-shrink: 0; display: none;
+            flex-shrink: 0; display: none; cursor: pointer;
         }
         #btnScanQR {
             flex-shrink: 0; white-space: nowrap; margin: 0;
         }
         .qr-error-text {
             font-size: 0.65rem; color: var(--danger); margin-left: 4px; flex-shrink: 0;
+        }
+
+        /* 二维码放大模态框 */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); z-index: 1000; justify-content: center; align-items: center;
+        }
+        .modal-content {
+            background: #fff; border-radius: 16px; padding: 24px; text-align: center;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .modal-content canvas {
+            width: 256px; height: 256px;
+        }
+        .modal-close {
+            margin-top: 16px; padding: 8px 20px; border: none; border-radius: 8px;
+            background: var(--primary); color: #fff; font-weight: 600; cursor: pointer;
         }
     </style>
 </head>
@@ -138,6 +153,15 @@
     </div>
 </div>
 
+<!-- 二维码放大模态框 -->
+<div class="modal-overlay" id="qrModal">
+    <div class="modal-content">
+        <canvas id="qrLargeCanvas" width="256" height="256"></canvas>
+        <br>
+        <button class="modal-close" id="btnCloseModal">关闭</button>
+    </div>
+</div>
+
 <script>
 (() => {
     const escapeHtml = str => { const d = document.createElement('div'); d.textContent = str; return d.innerHTML; };
@@ -159,15 +183,20 @@
     let publicIP = null;
     const $ = id => document.getElementById(id);
 
-    // 检查库是否加载成功
     const qrAvailable = typeof QRCode !== 'undefined' && QRCode.toCanvas;
     const scannerAvailable = typeof Html5Qrcode !== 'undefined';
 
-    // 二维码生成
     const qrCanvas = $('qrCanvas');
     const qrError = $('qrError');
+    const qrLargeCanvas = $('qrLargeCanvas');
+    const qrModal = $('qrModal');
+    const btnCloseModal = $('btnCloseModal');
+
+    // 当前生成的文本，用于放大显示
+    let currentQRText = '';
 
     function generateQR(text) {
+        currentQRText = text;
         if (!qrAvailable) {
             qrError.textContent = '库未加载';
             qrCanvas.style.display = 'none';
@@ -188,6 +217,25 @@
             }
         });
     }
+
+    // 点击小二维码放大
+    qrCanvas.addEventListener('click', () => {
+        if (!currentQRText) return;
+        QRCode.toCanvas(qrLargeCanvas, currentQRText, { width: 256, margin: 1 }, (error) => {
+            if (error) {
+                console.warn('放大二维码生成失败', error);
+                return;
+            }
+            qrModal.style.display = 'flex';
+        });
+    });
+
+    btnCloseModal.addEventListener('click', () => {
+        qrModal.style.display = 'none';
+    });
+    qrModal.addEventListener('click', (e) => {
+        if (e.target === qrModal) qrModal.style.display = 'none';
+    });
 
     // 扫描二维码
     const btnScanQR = $('btnScanQR');
@@ -228,7 +276,11 @@
                     },
                     () => {}
                 ).catch(err => {
-                    addMsg('❌ 无法启动摄像头: ' + err.message);
+                    if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
+                        addMsg('❌ 摄像头权限被拒绝，请在浏览器设置中允许访问摄像头');
+                    } else {
+                        addMsg('❌ 无法启动摄像头: ' + err.message);
+                    }
                     qrScanner = null;
                 });
             } else {
